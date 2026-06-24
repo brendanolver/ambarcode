@@ -118,8 +118,9 @@
       const collection = document.getElementById('collectionSelect').value;
 
       if (!search && !category && !collection) {
-        tableEl.innerHTML = '';
-        document.getElementById('resultsInfo').textContent = '';
+        products = [];
+        renderTable();
+        document.getElementById('resultsInfo').textContent = selected.size ? '' : '';
         document.getElementById('pagination').innerHTML = '';
         return;
       }
@@ -158,20 +159,33 @@
       }
     }
 
+    function renderRow(p) {
+      const isSelected = selected.has(p.product_id);
+      return `<tr class="${isSelected ? 'selected' : ''}" onclick="toggleRow('${p.product_id}', event)">
+        <td class="col-check"><input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleRow('${p.product_id}', event)" /></td>
+        <td class="col-style">${esc(p.style_number)}</td>
+        <td>${esc(p.description)}</td>
+        <td>${esc(p.colour || '-')}</td>
+        <td><span class="tag">${esc(p.category || '-')}</span></td>
+        <td><span class="tag">${esc(p.group || p.collection || '-')}</span></td>
+        <td style="text-align:right;font-weight:600">$${parseFloat(p.retail_price || 0).toFixed(2)}</td>
+      </tr>`;
+    }
+
     function renderTable() {
       const tableEl = document.getElementById('productTable');
-      const rows = products.map((p, i) => {
-        const isSelected = selected.has(p.product_id);
-        return `<tr class="${isSelected ? 'selected' : ''}" onclick="toggleRow('${p.product_id}', event)">
-          <td class="col-check"><input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleRow('${p.product_id}', event)" /></td>
-          <td class="col-style">${esc(p.style_number)}</td>
-          <td>${esc(p.description)}</td>
-          <td>${esc(p.colour || '-')}</td>
-          <td><span class="tag">${esc(p.category || '-')}</span></td>
-          <td><span class="tag">${esc(p.collection || '-')}</span></td>
-          <td style="text-align:right;font-weight:600">$${parseFloat(p.retail_price || 0).toFixed(2)}</td>
-        </tr>`;
-      }).join('');
+
+      const selectedItems = Array.from(selected.values())
+        .filter(p => !products.some(pr => pr.product_id === p.product_id));
+      const searchResults = products.filter(p => !selected.has(p.product_id));
+      const selectedInResults = products.filter(p => selected.has(p.product_id));
+
+      const pinnedRows = [...selectedItems, ...selectedInResults].map(p => renderRow(p)).join('');
+      const resultRows = searchResults.map(p => renderRow(p)).join('');
+
+      const divider = pinnedRows && resultRows
+        ? '<tr><td colspan="7" style="padding:4px 14px;background:#f5f5f5;font-size:12px;color:#888;">Search results</td></tr>'
+        : '';
 
       tableEl.innerHTML = `<table>
         <thead><tr>
@@ -183,7 +197,7 @@
           <th>Collection</th>
           <th style="text-align:right">Retail</th>
         </tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${pinnedRows}${divider}${resultRows}</tbody>
       </table>`;
 
       const allChecked = products.length > 0 && products.every(p => selected.has(p.product_id));

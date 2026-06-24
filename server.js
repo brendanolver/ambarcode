@@ -262,15 +262,14 @@ function formatBarcodeDisplay(barcode) {
 }
 
 function buildZPL(item) {
-  return `~JC
-^XA
+  return `^XA
 ^CI28
 ^MNY
 ^PW320
 ^LL320
 ^LH0,0
 ^FO4,24^A0N,28,28^FB280,1,0,R,0^FDWNDRR^FS
-^FO84,62^BY1,3,70^BCN,70,N,N,N^FD${item.barcode}^FS
+^FO72,62^BY1,3,70^BCN,70,N,N,N^FD${item.barcode}^FS
 ^FO4,140^A0N,20,20^FB312,1,0,C,0^FD${formatBarcodeDisplay(item.barcode)}^FS
 ^FO4,178^A0N,22,22^FD${item.description}^FS
 ^FO4,202^A0N,22,22^FD${item.colour}^FS
