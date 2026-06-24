@@ -131,6 +131,7 @@
         return `<tr>
           <td class="col-style">${esc(p.style_number)}</td>
           <td>${esc(p.description)}</td>
+          <td>${esc(p.colour || '-')}</td>
           <td><span class="tag">${esc(p.category || '-')}</span></td>
           <td style="text-align:right;font-weight:600">$${parseFloat(p.retail_price || 0).toFixed(2)}</td>
           <td>${sizeOptions}</td>
@@ -143,6 +144,7 @@
         <thead><tr>
           <th>Style</th>
           <th>Description</th>
+          <th>Colour</th>
           <th>Category</th>
           <th style="text-align:right">Retail</th>
           <th>Size</th>

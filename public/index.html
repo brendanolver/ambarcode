@@ -153,6 +153,7 @@
           <td class="col-check"><input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleRow('${p.product_id}', event)" /></td>
           <td class="col-style">${esc(p.style_number)}</td>
           <td>${esc(p.description)}</td>
+          <td>${esc(p.colour || '-')}</td>
           <td><span class="tag">${esc(p.category || '-')}</span></td>
           <td><span class="tag">${esc(p.collection || '-')}</span></td>
           <td style="text-align:right;font-weight:600">$${parseFloat(p.retail_price || 0).toFixed(2)}</td>
@@ -164,6 +165,7 @@
           <th class="col-check"><input type="checkbox" id="selectAll" onclick="toggleAll(this.checked)" /></th>
           <th>Style</th>
           <th>Description</th>
+          <th>Colour</th>
           <th>Category</th>
           <th>Collection</th>
           <th style="text-align:right">Retail</th>
@@ -214,6 +216,7 @@
         product_id: p.product_id,
         style_number: p.style_number,
         description: p.description,
+        colour: p.colour,
         category: p.category,
         collection: p.collection,
         retail_price: p.retail_price,

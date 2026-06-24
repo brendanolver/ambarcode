@@ -54,6 +54,28 @@ app.get('/api/products', async (req, res) => {
       filterIdx++;
     }
     const data = await amFetch('products', params);
+
+    const productIds = (data.response || []).map(p => p.product_id);
+    if (productIds.length) {
+      const attrResults = await Promise.all(productIds.map(pid =>
+        amFetch('product_attributes', {
+          'parameters[0][field]': 'product_id',
+          'parameters[0][operator]': '=',
+          'parameters[0][value]': pid,
+          'pagination[page_size]': '10',
+        })
+      ));
+      const colourMap = {};
+      attrResults.forEach((attrData, i) => {
+        if (attrData.response?.[0]) {
+          colourMap[productIds[i]] = attrData.response[0].attribute_2 || '';
+        }
+      });
+      for (const p of data.response) {
+        p.colour = colourMap[p.product_id] || '';
+      }
+    }
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
