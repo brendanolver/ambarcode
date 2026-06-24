@@ -29,11 +29,11 @@ async function amFetch(endpoint, params = {}) {
 
 app.get('/api/products', async (req, res) => {
   try {
-    const { search, category, collection, page } = req.query;
+    const { search, category, collection, last_id } = req.query;
     const params = {
       'pagination[page_size]': '50',
-      'pagination[page_number]': page || '1',
     };
+    if (last_id) params['pagination[last_id]'] = last_id;
     let filterIdx = 0;
     if (search) {
       params[`parameters[${filterIdx}][field]`] = 'description';
@@ -48,7 +48,7 @@ app.get('/api/products', async (req, res) => {
       filterIdx++;
     }
     if (collection) {
-      params[`parameters[${filterIdx}][field]`] = 'collection';
+      params[`parameters[${filterIdx}][field]`] = 'group';
       params[`parameters[${filterIdx}][operator]`] = '=';
       params[`parameters[${filterIdx}][value]`] = collection;
       filterIdx++;
@@ -97,14 +97,41 @@ app.get('/api/products/:id', async (req, res) => {
   }
 });
 
+async function fetchAllProducts() {
+  const allProducts = [];
+  let lastId = null;
+  while (true) {
+    const params = { 'pagination[page_size]': '1000' };
+    if (lastId) params['pagination[last_id]'] = lastId;
+    const data = await amFetch('products', params);
+    const batch = data.response || [];
+    if (!batch.length) break;
+    allProducts.push(...batch);
+    const newLastId = data.meta?.pagination?.last_id;
+    if (!newLastId || newLastId === lastId) break;
+    lastId = newLastId;
+  }
+  return allProducts;
+}
+
+let filterCache = { categories: null, collections: null, ts: 0 };
+
+async function getFilters() {
+  if (filterCache.categories && Date.now() - filterCache.ts < 5 * 60 * 1000) {
+    return filterCache;
+  }
+  const products = await fetchAllProducts();
+  filterCache = {
+    categories: [...new Set(products.map(p => p.category).filter(Boolean))].sort(),
+    collections: [...new Set(products.map(p => p.group).filter(Boolean))].sort(),
+    ts: Date.now(),
+  };
+  return filterCache;
+}
+
 app.get('/api/categories', async (req, res) => {
   try {
-    const data = await amFetch('products', {
-      'pagination[page_size]': '1000',
-    });
-    const categories = [...new Set(
-      data.response.map(p => p.category).filter(Boolean)
-    )].sort();
+    const { categories } = await getFilters();
     res.json(categories);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -113,12 +140,7 @@ app.get('/api/categories', async (req, res) => {
 
 app.get('/api/collections', async (req, res) => {
   try {
-    const data = await amFetch('products', {
-      'pagination[page_size]': '1000',
-    });
-    const collections = [...new Set(
-      data.response.map(p => p.collection).filter(Boolean)
-    )].sort();
+    const { collections } = await getFilters();
     res.json(collections);
   } catch (err) {
     res.status(500).json({ error: err.message });

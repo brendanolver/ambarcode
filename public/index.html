@@ -81,7 +81,6 @@
   </div>
 
   <script>
-    let currentPage = 1;
     let products = [];
     const selected = new Map();
 
@@ -108,19 +107,30 @@
       }
     }
 
-    async function searchProducts(page = 1) {
-      currentPage = page;
+    let lastId = null;
+
+    async function searchProducts(nextPage = false) {
       const tableEl = document.getElementById('productTable');
       tableEl.innerHTML = '<div class="loading">Searching...</div>';
 
-      const params = new URLSearchParams();
       const search = document.getElementById('searchInput').value.trim();
       const category = document.getElementById('categorySelect').value;
       const collection = document.getElementById('collectionSelect').value;
+
+      if (!search && !category && !collection) {
+        tableEl.innerHTML = '';
+        document.getElementById('resultsInfo').textContent = '';
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+
+      if (!nextPage) lastId = null;
+
+      const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (category) params.set('category', category);
       if (collection) params.set('collection', collection);
-      params.set('page', page);
+      if (lastId) params.set('last_id', lastId);
 
       try {
         const data = await fetch(`/api/products?${params}`).then(r => r.json());
@@ -128,9 +138,10 @@
 
         products = data.response || [];
         const meta = data.meta?.pagination || {};
+        lastId = meta.last_id || null;
 
         document.getElementById('resultsInfo').textContent =
-          `${meta.total_records || products.length} products found`;
+          `${products.length} products shown`;
 
         if (!products.length) {
           tableEl.innerHTML = '<div class="empty">No products found</div>';
@@ -139,7 +150,9 @@
         }
 
         renderTable();
-        renderPagination(meta);
+        document.getElementById('pagination').innerHTML = lastId
+          ? '<button onclick="searchProducts(true)">Load More &raquo;</button>'
+          : '';
       } catch (e) {
         tableEl.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
       }
@@ -226,19 +239,6 @@
       window.location.href = '/print.html';
     }
 
-    function renderPagination(meta) {
-      const el = document.getElementById('pagination');
-      const total = parseInt(meta.total_pages) || 1;
-      if (total <= 1) { el.innerHTML = ''; return; }
-      let html = '';
-      html += `<button ${currentPage <= 1 ? 'disabled' : ''} onclick="searchProducts(${currentPage - 1})">&laquo; Prev</button>`;
-      for (let i = 1; i <= Math.min(total, 10); i++) {
-        html += `<button class="${i === currentPage ? 'active' : ''}" onclick="searchProducts(${i})">${i}</button>`;
-      }
-      html += `<button ${currentPage >= total ? 'disabled' : ''} onclick="searchProducts(${currentPage + 1})">Next &raquo;</button>`;
-      el.innerHTML = html;
-    }
-
     function esc(str) {
       const d = document.createElement('div');
       d.textContent = str || '';
@@ -257,7 +257,6 @@
     document.getElementById('collectionSelect').addEventListener('change', () => searchProducts());
 
     loadFilters();
-    searchProducts();
   </script>
 </body>
 </html>
