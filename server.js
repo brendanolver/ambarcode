@@ -168,7 +168,7 @@ app.get('/api/printers', async (req, res) => {
     if (!r.ok) throw new Error(`PrintNode ${r.status}`);
     const printers = await r.json();
     const zebras = printers
-      .filter(p => p.description.includes('GK420d') && p.state === 'online')
+      .filter(p => p.description.includes('ZDesigner') && p.state === 'online')
       .map(p => ({ id: p.id, name: p.name, computer: p.computer.name }));
     res.json(zebras);
   } catch (err) {
