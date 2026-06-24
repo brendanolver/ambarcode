@@ -34,12 +34,17 @@
     th { text-align: left; padding: 10px 14px; font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e5e5e5; }
     td { padding: 10px 14px; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #fafafa; }
     .col-style { font-weight: 600; font-size: 13px; color: #555; }
     .tag { display: inline-block; background: #f0f0f0; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin: 1px 2px; }
     .qty-input { width: 60px; padding: 5px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; text-align: center; }
     .qty-input:focus { border-color: #2563eb; outline: none; }
-    .size-select { padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; max-width: 140px; }
+
+    .toggle-arrow { background: none; border: none; font-size: 14px; cursor: pointer; color: #888; padding: 4px 8px; transition: transform 0.15s; }
+    .toggle-arrow.open { transform: rotate(90deg); }
+    .product-row { cursor: pointer; }
+    .product-row:hover td { background: #fafafa; }
+    .size-row td { background: #f9fafb; padding: 6px 14px; }
+    .size-row .size-name { font-weight: 600; font-size: 13px; padding-left: 30px; }
 
     .empty { text-align: center; padding: 60px; color: #888; }
     .empty a { color: #2563eb; text-decoration: none; }
@@ -81,6 +86,7 @@
 
   <script>
     let items = [];
+    const expanded = new Set();
 
     function init() {
       const raw = sessionStorage.getItem('am_print_items');
@@ -89,7 +95,12 @@
           '<div class="empty">No products selected.<br><a href="/">Go back to search</a></div>';
         return;
       }
-      items = JSON.parse(raw).map(p => ({ ...p, _qty: 1, _size: '' }));
+      items = JSON.parse(raw).map(p => {
+        const sizes = Object.values(p.size_range_info || {}).filter(Boolean);
+        const sizeQtys = {};
+        sizes.forEach(s => sizeQtys[s] = 0);
+        return { ...p, _sizes: sizes, _sizeQtys: sizeQtys, _expanded: false };
+      });
       renderTable();
       updateSummary();
       loadPrinter();
@@ -122,35 +133,45 @@
         return;
       }
 
-      const rows = items.map((p, i) => {
-        const sizes = Object.values(p.size_range_info || {}).filter(Boolean);
-        const sizeOptions = sizes.length
-          ? `<select class="size-select" onchange="setSize(${i}, this.value)">
-              <option value="">All sizes</option>
-              ${sizes.map(s => `<option value="${esc(s)}" ${p._size === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
-             </select>`
-          : '<span class="tag">-</span>';
+      let rows = '';
+      items.forEach((p, i) => {
+        const isExpanded = expanded.has(i);
+        const totalQty = Object.values(p._sizeQtys).reduce((s, q) => s + q, 0);
+        const hasSizes = p._sizes.length > 0;
 
-        return `<tr>
+        rows += `<tr class="product-row" onclick="${hasSizes ? `toggleExpand(${i})` : ''}">
+          <td style="width:30px">${hasSizes ? `<button class="toggle-arrow ${isExpanded ? 'open' : ''}">&#9654;</button>` : ''}</td>
           <td class="col-style">${esc(p.style_number)}</td>
           <td>${esc(p.description)}</td>
           <td>${esc(p.colour || '-')}</td>
           <td><span class="tag">${esc(p.category || '-')}</span></td>
           <td style="text-align:right;font-weight:600">$${parseFloat(p.retail_price || 0).toFixed(2)}</td>
-          <td>${sizeOptions}</td>
-          <td style="text-align:center"><input type="number" class="qty-input" value="${p._qty}" min="0" max="999" onchange="setQty(${i}, this.value)" /></td>
-          <td style="text-align:center"><button class="btn-remove" onclick="removeItem(${i})">&times;</button></td>
+          <td style="text-align:center;font-weight:600">${totalQty}</td>
+          <td style="text-align:center"><button class="btn-remove" onclick="event.stopPropagation();removeItem(${i})">&times;</button></td>
         </tr>`;
-      }).join('');
+
+        if (isExpanded && hasSizes) {
+          p._sizes.forEach(size => {
+            const qty = p._sizeQtys[size] || 0;
+            rows += `<tr class="size-row">
+              <td></td>
+              <td class="size-name">${esc(size)}</td>
+              <td colspan="4"></td>
+              <td style="text-align:center"><input type="number" class="qty-input" value="${qty}" min="0" max="999" onclick="event.stopPropagation()" onchange="setSizeQty(${i}, '${esc(size)}', this.value)" /></td>
+              <td></td>
+            </tr>`;
+          });
+        }
+      });
 
       el.innerHTML = `<table>
         <thead><tr>
+          <th></th>
           <th>Style</th>
           <th>Description</th>
           <th>Colour</th>
           <th>Category</th>
           <th style="text-align:right">Retail</th>
-          <th>Size</th>
           <th style="text-align:center">Qty</th>
           <th></th>
         </tr></thead>
@@ -158,36 +179,49 @@
       </table>`;
     }
 
-    function setQty(idx, val) {
-      items[idx]._qty = Math.max(0, parseInt(val) || 0);
-      updateSummary();
+    function toggleExpand(idx) {
+      if (expanded.has(idx)) expanded.delete(idx);
+      else expanded.add(idx);
+      renderTable();
     }
 
-    function setSize(idx, val) {
-      items[idx]._size = val;
+    function setSizeQty(itemIdx, size, val) {
+      items[itemIdx]._sizeQtys[size] = Math.max(0, parseInt(val) || 0);
+      updateSummary();
+      renderTable();
     }
 
     function removeItem(idx) {
       items.splice(idx, 1);
+      expanded.delete(idx);
+      const newExpanded = new Set();
+      expanded.forEach(e => newExpanded.add(e > idx ? e - 1 : e));
+      expanded.clear();
+      newExpanded.forEach(e => expanded.add(e));
       renderTable();
       updateSummary();
     }
 
     function applyBulkQty() {
       const qty = Math.max(0, parseInt(document.getElementById('bulkQty').value) || 0);
-      items.forEach(p => p._qty = qty);
+      items.forEach(p => {
+        Object.keys(p._sizeQtys).forEach(s => p._sizeQtys[s] = qty);
+      });
       renderTable();
       updateSummary();
     }
 
     function clearAllQty() {
-      items.forEach(p => { p._qty = 0; p._size = ''; });
+      items.forEach(p => {
+        Object.keys(p._sizeQtys).forEach(s => p._sizeQtys[s] = 0);
+      });
       renderTable();
       updateSummary();
     }
 
     function updateSummary() {
-      const total = items.reduce((sum, p) => sum + p._qty, 0);
+      const total = items.reduce((sum, p) =>
+        sum + Object.values(p._sizeQtys).reduce((s, q) => s + q, 0), 0);
       document.getElementById('printSummary').textContent = `${total} label${total !== 1 ? 's' : ''}`;
       document.getElementById('btnPrint').disabled = total === 0;
     }
@@ -196,22 +230,29 @@
       const printerId = document.getElementById('printerSelect').value;
       if (!printerId) { showToast('Set your station in Settings first', true); return; }
 
-      const toPrint = items.filter(p => p._qty > 0);
-      if (!toPrint.length) return;
+      const payload = [];
+      items.forEach(p => {
+        Object.entries(p._sizeQtys).forEach(([size, qty]) => {
+          if (qty > 0) {
+            payload.push({
+              productId: p.product_id,
+              styleNumber: p.style_number,
+              description: p.description,
+              retailPrice: parseFloat(p.retail_price || 0).toFixed(2),
+              size,
+              qty,
+            });
+          }
+        });
+      });
+
+      if (!payload.length) return;
 
       const btn = document.getElementById('btnPrint');
       btn.disabled = true;
       btn.textContent = 'Printing...';
 
       try {
-        const payload = toPrint.map(p => ({
-          productId: p.product_id,
-          styleNumber: p.style_number,
-          description: p.description,
-          retailPrice: parseFloat(p.retail_price || 0).toFixed(2),
-          size: p._size,
-          qty: p._qty,
-        }));
         const resp = await fetch('/api/print', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
