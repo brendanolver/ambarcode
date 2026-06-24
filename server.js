@@ -138,23 +138,54 @@ app.post('/api/print', async (req, res) => {
     if (!printerId || !items?.length) {
       return res.status(400).json({ error: 'printerId and items required' });
     }
+
     const results = [];
     for (const item of items) {
-      const zpl = buildZPL(item);
-      for (let i = 0; i < (item.qty || 1); i++) {
-        const r = await fetch('https://api.printnode.com/printjobs', {
-          method: 'POST',
-          headers: pnHeaders,
-          body: JSON.stringify({
-            printerId: parseInt(printerId),
-            title: `Barcode - ${item.styleNumber} ${item.size || ''}`.trim(),
-            contentType: 'raw_base64',
-            content: Buffer.from(zpl).toString('base64'),
-            source: 'AM Barcode App',
-          }),
+      const skus = await amFetch('inventory', {
+        'parameters[0][field]': 'product_id',
+        'parameters[0][operator]': '=',
+        'parameters[0][value]': item.productId,
+        'pagination[page_size]': '100',
+      });
+
+      const skuList = skus.response || [];
+      const matchingSkus = item.size
+        ? skuList.filter(s => s.size === item.size)
+        : skuList;
+
+      if (!matchingSkus.length) {
+        const fallbackZpl = buildZPL({
+          barcode: item.styleNumber,
+          description: item.description,
+          colour: item.colour || '',
+          size: item.size || '',
+          styleNumber: item.styleNumber,
+          audRetail: item.retailPrice,
+          nzdRetail: (parseFloat(item.retailPrice) + 10).toFixed(2),
         });
-        if (!r.ok) throw new Error(`PrintNode ${r.status}: ${await r.text()}`);
-        results.push(await r.json());
+        for (let i = 0; i < (item.qty || 1); i++) {
+          const r = await sendPrintJob(printerId, item.styleNumber, item.size, fallbackZpl);
+          results.push(r);
+        }
+        continue;
+      }
+
+      for (const sku of matchingSkus) {
+        const audRetail = parseFloat(sku.retail_price || item.retailPrice || 0).toFixed(2);
+        const nzdRetail = (parseFloat(audRetail) + 10).toFixed(2);
+        const zpl = buildZPL({
+          barcode: sku.upc_display || item.styleNumber,
+          description: item.description,
+          colour: sku.attr_2 || item.colour || '',
+          size: sku.size || item.size || '',
+          styleNumber: item.styleNumber,
+          audRetail,
+          nzdRetail,
+        });
+        for (let i = 0; i < (item.qty || 1); i++) {
+          const r = await sendPrintJob(printerId, item.styleNumber, sku.size, zpl);
+          results.push(r);
+        }
       }
     }
     res.json({ success: true, jobCount: results.length });
@@ -163,16 +194,46 @@ app.post('/api/print', async (req, res) => {
   }
 });
 
+async function sendPrintJob(printerId, styleNumber, size, zpl) {
+  const r = await fetch('https://api.printnode.com/printjobs', {
+    method: 'POST',
+    headers: pnHeaders,
+    body: JSON.stringify({
+      printerId: parseInt(printerId),
+      title: `Barcode - ${styleNumber} ${size || ''}`.trim(),
+      contentType: 'raw_base64',
+      content: Buffer.from(zpl).toString('base64'),
+      source: 'AM Barcode App',
+    }),
+  });
+  if (!r.ok) throw new Error(`PrintNode ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+function formatBarcodeDisplay(barcode) {
+  if (barcode.length === 13) {
+    return `${barcode[0]}  ${barcode.substring(1, 7)}  ${barcode.substring(7)}`;
+  }
+  return barcode;
+}
+
 function buildZPL(item) {
-  const barcode = item.styleNumber + (item.size ? '-' + item.size : '');
-  return `^XA
-^CF0,30
-^FO50,30^FD${item.description}^FS
-^CF0,22
-^FO50,70^FD${item.styleNumber}${item.size ? '  Size: ' + item.size : ''}^FS
-^FO50,100^FDRetail: $${item.retailPrice}^FS
-^BY2,2,80
-^FO50,140^BC,,Y,N,N^FD${barcode}^FS
+  return `~JC
+^XA
+^CI28
+^MNY
+^PW320
+^LL320
+^LH0,0
+^FO4,24^A0N,28,28^FB280,1,0,R,0^FDWNDRR^FS
+^FO84,62^BY1,3,70^BCN,70,N,N,N^FD${item.barcode}^FS
+^FO4,140^A0N,20,20^FB312,1,0,C,0^FD${formatBarcodeDisplay(item.barcode)}^FS
+^FO4,178^A0N,22,22^FD${item.description}^FS
+^FO4,202^A0N,22,22^FD${item.colour}^FS
+^FO4,226^A0N,22,22^FDSIZE: ${item.size}^FS
+^FO4,252^A0N,22,22^FD${item.styleNumber}^FS
+^FO4,252^A0N,22,22^FB290,1,0,R,0^FDAUD $${item.audRetail}^FS
+^FO4,276^A0N,22,22^FB290,1,0,R,0^FDNZD $${item.nzdRetail}^FS
 ^XZ`;
 }
 

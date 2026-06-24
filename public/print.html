@@ -200,6 +200,7 @@
 
       try {
         const payload = toPrint.map(p => ({
+          productId: p.product_id,
           styleNumber: p.style_number,
           description: p.description,
           retailPrice: parseFloat(p.retail_price || 0).toFixed(2),
