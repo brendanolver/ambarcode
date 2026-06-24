@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AM Barcode</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; }
+    .header { background: #1a1a1a; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header span { font-size: 13px; color: #888; }
+    .header .right { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+    .header a { color: #888; font-size: 13px; text-decoration: none; }
+    .header a:hover { color: #fff; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    .search-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .search-bar input[type=text] { flex: 1; min-width: 200px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    .search-bar select { padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; background: #fff; min-width: 160px; }
+
+    .select-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px 16px; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; flex-wrap: wrap; }
+    .select-bar .count { font-size: 14px; font-weight: 600; }
+    .select-bar .spacer { flex: 1; }
+    .btn-confirm { padding: 8px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600; }
+    .btn-confirm:hover { background: #1d4ed8; }
+    .btn-confirm:disabled { background: #94a3b8; cursor: not-allowed; }
+    .btn-clear { padding: 6px 14px; background: #fff; color: #666; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; cursor: pointer; }
+    .btn-clear:hover { background: #f5f5f5; }
+
+    .results-info { font-size: 13px; color: #666; margin-bottom: 12px; }
+
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5; }
+    thead { background: #fafafa; }
+    th { text-align: left; padding: 10px 14px; font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e5e5e5; }
+    td { padding: 10px 14px; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    tr.selected td { background: #eff6ff; }
+    .col-check { width: 40px; text-align: center; }
+    .col-check input { width: 16px; height: 16px; cursor: pointer; }
+    .col-style { font-weight: 600; font-size: 13px; color: #555; }
+    .tag { display: inline-block; background: #f0f0f0; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin: 1px 2px; }
+
+    .pagination { display: flex; gap: 8px; justify-content: center; margin-top: 20px; }
+    .pagination button { padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 13px; }
+    .pagination button:hover { background: #f0f0f0; }
+    .pagination button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+    .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .loading { text-align: center; padding: 40px; color: #888; }
+    .empty { text-align: center; padding: 40px; color: #888; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>AM Barcode</h1>
+    <span>Apparel Magic &rarr; Label Printer</span>
+    <div class="right">
+      <a href="/settings.html">Settings</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search by style or description..." />
+      <select id="categorySelect"><option value="">All Categories</option></select>
+      <select id="collectionSelect"><option value="">All Collections</option></select>
+    </div>
+
+    <div class="select-bar">
+      <span class="count" id="selectedCount">0 selected</span>
+      <button class="btn-clear" onclick="clearSelection()">Clear</button>
+      <div class="spacer"></div>
+      <button class="btn-confirm" id="btnConfirm" onclick="goToPrint()" disabled>Confirm &rarr; Print</button>
+    </div>
+
+    <div class="results-info" id="resultsInfo"></div>
+    <div id="productTable"></div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <script>
+    let currentPage = 1;
+    let products = [];
+    const selected = new Map();
+
+    async function loadFilters() {
+      try {
+        const [cats, colls] = await Promise.all([
+          fetch('/api/categories').then(r => r.json()),
+          fetch('/api/collections').then(r => r.json()),
+        ]);
+        const catSel = document.getElementById('categorySelect');
+        cats.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c; opt.textContent = c;
+          catSel.appendChild(opt);
+        });
+        const collSel = document.getElementById('collectionSelect');
+        colls.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c; opt.textContent = c;
+          collSel.appendChild(opt);
+        });
+      } catch (e) {
+        console.error('Failed to load filters', e);
+      }
+    }
+
+    async function searchProducts(page = 1) {
+      currentPage = page;
+      const tableEl = document.getElementById('productTable');
+      tableEl.innerHTML = '<div class="loading">Searching...</div>';
+
+      const params = new URLSearchParams();
+      const search = document.getElementById('searchInput').value.trim();
+      const category = document.getElementById('categorySelect').value;
+      const collection = document.getElementById('collectionSelect').value;
+      if (search) params.set('search', search);
+      if (category) params.set('category', category);
+      if (collection) params.set('collection', collection);
+      params.set('page', page);
+
+      try {
+        const data = await fetch(`/api/products?${params}`).then(r => r.json());
+        if (data.error) throw new Error(data.error);
+
+        products = data.response || [];
+        const meta = data.meta?.pagination || {};
+
+        document.getElementById('resultsInfo').textContent =
+          `${meta.total_records || products.length} products found`;
+
+        if (!products.length) {
+          tableEl.innerHTML = '<div class="empty">No products found</div>';
+          document.getElementById('pagination').innerHTML = '';
+          return;
+        }
+
+        renderTable();
+        renderPagination(meta);
+      } catch (e) {
+        tableEl.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderTable() {
+      const tableEl = document.getElementById('productTable');
+      const rows = products.map((p, i) => {
+        const isSelected = selected.has(p.product_id);
+        return `<tr class="${isSelected ? 'selected' : ''}" onclick="toggleRow('${p.product_id}', event)">
+          <td class="col-check"><input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleRow('${p.product_id}', event)" /></td>
+          <td class="col-style">${esc(p.style_number)}</td>
+          <td>${esc(p.description)}</td>
+          <td><span class="tag">${esc(p.category || '-')}</span></td>
+          <td><span class="tag">${esc(p.collection || '-')}</span></td>
+          <td style="text-align:right;font-weight:600">$${parseFloat(p.retail_price || 0).toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+
+      tableEl.innerHTML = `<table>
+        <thead><tr>
+          <th class="col-check"><input type="checkbox" id="selectAll" onclick="toggleAll(this.checked)" /></th>
+          <th>Style</th>
+          <th>Description</th>
+          <th>Category</th>
+          <th>Collection</th>
+          <th style="text-align:right">Retail</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+
+      const allChecked = products.length > 0 && products.every(p => selected.has(p.product_id));
+      document.getElementById('selectAll').checked = allChecked;
+    }
+
+    function toggleRow(productId, e) {
+      e.stopPropagation();
+      if (selected.has(productId)) {
+        selected.delete(productId);
+      } else {
+        const product = products.find(p => p.product_id === productId);
+        if (product) selected.set(productId, product);
+      }
+      renderTable();
+      updateCount();
+    }
+
+    function toggleAll(checked) {
+      if (checked) {
+        products.forEach(p => selected.set(p.product_id, p));
+      } else {
+        products.forEach(p => selected.delete(p.product_id));
+      }
+      renderTable();
+      updateCount();
+    }
+
+    function clearSelection() {
+      selected.clear();
+      renderTable();
+      updateCount();
+    }
+
+    function updateCount() {
+      const count = selected.size;
+      document.getElementById('selectedCount').textContent = `${count} selected`;
+      document.getElementById('btnConfirm').disabled = count === 0;
+    }
+
+    function goToPrint() {
+      const items = Array.from(selected.values()).map(p => ({
+        product_id: p.product_id,
+        style_number: p.style_number,
+        description: p.description,
+        category: p.category,
+        collection: p.collection,
+        retail_price: p.retail_price,
+        size_range_info: p.size_range_info,
+      }));
+      sessionStorage.setItem('am_print_items', JSON.stringify(items));
+      window.location.href = '/print.html';
+    }
+
+    function renderPagination(meta) {
+      const el = document.getElementById('pagination');
+      const total = parseInt(meta.total_pages) || 1;
+      if (total <= 1) { el.innerHTML = ''; return; }
+      let html = '';
+      html += `<button ${currentPage <= 1 ? 'disabled' : ''} onclick="searchProducts(${currentPage - 1})">&laquo; Prev</button>`;
+      for (let i = 1; i <= Math.min(total, 10); i++) {
+        html += `<button class="${i === currentPage ? 'active' : ''}" onclick="searchProducts(${i})">${i}</button>`;
+      }
+      html += `<button ${currentPage >= total ? 'disabled' : ''} onclick="searchProducts(${currentPage + 1})">Next &raquo;</button>`;
+      el.innerHTML = html;
+    }
+
+    function esc(str) {
+      const d = document.createElement('div');
+      d.textContent = str || '';
+      return d.innerHTML;
+    }
+
+    let debounceTimer;
+    document.getElementById('searchInput').addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => searchProducts(), 300);
+    });
+    document.getElementById('searchInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { clearTimeout(debounceTimer); searchProducts(); }
+    });
+    document.getElementById('categorySelect').addEventListener('change', () => searchProducts());
+    document.getElementById('collectionSelect').addEventListener('change', () => searchProducts());
+
+    loadFilters();
+    searchProducts();
+  </script>
+</body>
+</html>

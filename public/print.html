@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AM Barcode — Print</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; }
+    .header { background: #1a1a1a; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header a { color: #888; font-size: 13px; text-decoration: none; }
+    .header a:hover { color: #fff; }
+    .header .right { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    .bulk-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px 16px; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; flex-wrap: wrap; }
+    .bulk-bar label { font-size: 13px; color: #666; }
+    .bulk-bar input[type=number] { width: 70px; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    .bulk-bar .btn-apply { padding: 6px 14px; background: #1a1a1a; color: #fff; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; }
+    .bulk-bar .btn-apply:hover { background: #333; }
+    .bulk-bar .btn-clear { padding: 6px 14px; background: #fff; color: #666; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; cursor: pointer; }
+    .bulk-bar .btn-clear:hover { background: #f5f5f5; }
+    .bulk-bar .spacer { flex: 1; }
+    .bulk-bar .print-summary { font-size: 13px; font-weight: 600; }
+    .btn-print { padding: 8px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600; }
+    .btn-print:hover { background: #1d4ed8; }
+    .btn-print:disabled { background: #94a3b8; cursor: not-allowed; }
+    .btn-remove { background: none; border: none; color: #ccc; font-size: 16px; cursor: pointer; padding: 4px 8px; }
+    .btn-remove:hover { color: #dc2626; }
+
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5; }
+    thead { background: #fafafa; }
+    th { text-align: left; padding: 10px 14px; font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e5e5e5; }
+    td { padding: 10px 14px; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    .col-style { font-weight: 600; font-size: 13px; color: #555; }
+    .tag { display: inline-block; background: #f0f0f0; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin: 1px 2px; }
+    .qty-input { width: 60px; padding: 5px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; text-align: center; }
+    .qty-input:focus { border-color: #2563eb; outline: none; }
+    .size-select { padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; max-width: 140px; }
+
+    .empty { text-align: center; padding: 60px; color: #888; }
+    .empty a { color: #2563eb; text-decoration: none; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #16a34a; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; z-index: 200; display: none; }
+    .toast.error { background: #dc2626; }
+    .station-label { font-size: 12px; color: #888; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Print Labels</h1>
+    <div class="right">
+      <a href="/">&larr; Back to search</a>
+      <a href="/settings.html">Settings</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="bulk-bar">
+      <span class="station-label" id="stationName"></span>
+      <div class="spacer"></div>
+      <label>Set all qty:</label>
+      <input type="number" id="bulkQty" value="1" min="0" max="999" />
+      <button class="btn-apply" onclick="applyBulkQty()">Apply to All</button>
+      <button class="btn-clear" onclick="clearAllQty()">Clear All</button>
+      <div class="spacer"></div>
+      <span class="print-summary" id="printSummary">0 labels</span>
+      <button class="btn-print" id="btnPrint" onclick="printAll()" disabled>Print Labels</button>
+    </div>
+
+    <div id="printTable"></div>
+  </div>
+
+  <input type="hidden" id="printerSelect" />
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let items = [];
+
+    function init() {
+      const raw = sessionStorage.getItem('am_print_items');
+      if (!raw) {
+        document.getElementById('printTable').innerHTML =
+          '<div class="empty">No products selected.<br><a href="/">Go back to search</a></div>';
+        return;
+      }
+      items = JSON.parse(raw).map(p => ({ ...p, _qty: 1, _size: '' }));
+      renderTable();
+      updateSummary();
+      loadPrinter();
+    }
+
+    async function loadPrinter() {
+      try {
+        const printers = await fetch('/api/printers').then(r => r.json());
+        const saved = localStorage.getItem('am_station');
+        const el = document.getElementById('printerSelect');
+
+        if (saved && printers.some(p => p.id.toString() === saved)) {
+          el.value = saved;
+        } else if (printers.length) {
+          el.value = printers[0].id;
+        }
+        const match = printers.find(p => p.id.toString() === el.value);
+        if (match) {
+          document.getElementById('stationName').textContent = match.computer;
+        }
+      } catch (e) {
+        console.error('Failed to load printer', e);
+      }
+    }
+
+    function renderTable() {
+      const el = document.getElementById('printTable');
+      if (!items.length) {
+        el.innerHTML = '<div class="empty">No products selected.<br><a href="/">Go back to search</a></div>';
+        return;
+      }
+
+      const rows = items.map((p, i) => {
+        const sizes = Object.values(p.size_range_info || {}).filter(Boolean);
+        const sizeOptions = sizes.length
+          ? `<select class="size-select" onchange="setSize(${i}, this.value)">
+              <option value="">All sizes</option>
+              ${sizes.map(s => `<option value="${esc(s)}" ${p._size === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+             </select>`
+          : '<span class="tag">-</span>';
+
+        return `<tr>
+          <td class="col-style">${esc(p.style_number)}</td>
+          <td>${esc(p.description)}</td>
+          <td><span class="tag">${esc(p.category || '-')}</span></td>
+          <td style="text-align:right;font-weight:600">$${parseFloat(p.retail_price || 0).toFixed(2)}</td>
+          <td>${sizeOptions}</td>
+          <td style="text-align:center"><input type="number" class="qty-input" value="${p._qty}" min="0" max="999" onchange="setQty(${i}, this.value)" /></td>
+          <td style="text-align:center"><button class="btn-remove" onclick="removeItem(${i})">&times;</button></td>
+        </tr>`;
+      }).join('');
+
+      el.innerHTML = `<table>
+        <thead><tr>
+          <th>Style</th>
+          <th>Description</th>
+          <th>Category</th>
+          <th style="text-align:right">Retail</th>
+          <th>Size</th>
+          <th style="text-align:center">Qty</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    }
+
+    function setQty(idx, val) {
+      items[idx]._qty = Math.max(0, parseInt(val) || 0);
+      updateSummary();
+    }
+
+    function setSize(idx, val) {
+      items[idx]._size = val;
+    }
+
+    function removeItem(idx) {
+      items.splice(idx, 1);
+      renderTable();
+      updateSummary();
+    }
+
+    function applyBulkQty() {
+      const qty = Math.max(0, parseInt(document.getElementById('bulkQty').value) || 0);
+      items.forEach(p => p._qty = qty);
+      renderTable();
+      updateSummary();
+    }
+
+    function clearAllQty() {
+      items.forEach(p => { p._qty = 0; p._size = ''; });
+      renderTable();
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const total = items.reduce((sum, p) => sum + p._qty, 0);
+      document.getElementById('printSummary').textContent = `${total} label${total !== 1 ? 's' : ''}`;
+      document.getElementById('btnPrint').disabled = total === 0;
+    }
+
+    async function printAll() {
+      const printerId = document.getElementById('printerSelect').value;
+      if (!printerId) { showToast('Set your station in Settings first', true); return; }
+
+      const toPrint = items.filter(p => p._qty > 0);
+      if (!toPrint.length) return;
+
+      const btn = document.getElementById('btnPrint');
+      btn.disabled = true;
+      btn.textContent = 'Printing...';
+
+      try {
+        const payload = toPrint.map(p => ({
+          styleNumber: p.style_number,
+          description: p.description,
+          retailPrice: parseFloat(p.retail_price || 0).toFixed(2),
+          size: p._size,
+          qty: p._qty,
+        }));
+        const resp = await fetch('/api/print', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ printerId, items: payload }),
+        }).then(r => r.json());
+
+        if (resp.error) throw new Error(resp.error);
+        showToast(`Sent ${resp.jobCount} label${resp.jobCount !== 1 ? 's' : ''} to printer`);
+      } catch (e) {
+        showToast('Print failed: ' + e.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Print Labels';
+        updateSummary();
+      }
+    }
+
+    function showToast(msg, isError = false) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = 'toast' + (isError ? ' error' : '');
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 4000);
+    }
+
+    function esc(str) {
+      const d = document.createElement('div');
+      d.textContent = str || '';
+      return d.innerHTML;
+    }
+
+    init();
+  </script>
+</body>
+</html>
