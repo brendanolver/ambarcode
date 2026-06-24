@@ -55,6 +55,7 @@
 </head>
 <body>
   <div class="header">
+    <img src="/img/WNDRR LOGO.jpg" alt="WNDRR" style="height:32px;border-radius:4px;" />
     <h1>Print Labels</h1>
     <div class="right">
       <a href="/">&larr; Back to search</a>
@@ -66,13 +67,18 @@
     <div class="bulk-bar">
       <span class="station-label" id="stationName"></span>
       <div class="spacer"></div>
-      <label>Set all qty:</label>
-      <input type="number" id="bulkQty" value="1" min="0" max="999" />
-      <button class="btn-apply" onclick="applyBulkQty()">Apply to All</button>
-      <button class="btn-clear" onclick="clearAllQty()">Clear All</button>
-      <div class="spacer"></div>
       <span class="print-summary" id="printSummary">0 labels</span>
       <button class="btn-print" id="btnPrint" onclick="printAll()" disabled>Print Labels</button>
+    </div>
+
+    <div class="bulk-bar" id="sizeBar" style="flex-direction:column;align-items:stretch;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <label style="font-weight:600;font-size:13px;">Set qty by size:</label>
+        <div class="spacer"></div>
+        <button class="btn-apply" onclick="applySizeQtys()">Apply</button>
+        <button class="btn-clear" onclick="clearAllQty()">Clear All</button>
+      </div>
+      <div id="sizeInputs" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
     </div>
 
     <div id="printTable"></div>
@@ -101,6 +107,7 @@
         sizes.forEach(s => sizeQtys[s] = 0);
         return { ...p, _sizes: sizes, _sizeQtys: sizeQtys, _expanded: false };
       });
+      buildSizeInputs();
       renderTable();
       updateSummary();
       loadPrinter();
@@ -202,10 +209,32 @@
       updateSummary();
     }
 
-    function applyBulkQty() {
-      const qty = Math.max(0, parseInt(document.getElementById('bulkQty').value) || 0);
+    function buildSizeInputs() {
+      const allSizes = [];
+      const seen = new Set();
       items.forEach(p => {
-        Object.keys(p._sizeQtys).forEach(s => p._sizeQtys[s] = qty);
+        p._sizes.forEach(s => {
+          if (!seen.has(s)) { seen.add(s); allSizes.push(s); }
+        });
+      });
+      const container = document.getElementById('sizeInputs');
+      container.innerHTML = allSizes.map(s =>
+        `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+          <span style="font-size:12px;font-weight:600;color:#555;">${esc(s)}</span>
+          <input type="number" class="qty-input size-bulk-input" data-size="${esc(s)}" value="0" min="0" max="999" />
+        </div>`
+      ).join('');
+    }
+
+    function applySizeQtys() {
+      document.querySelectorAll('.size-bulk-input').forEach(input => {
+        const size = input.dataset.size;
+        const qty = Math.max(0, parseInt(input.value) || 0);
+        items.forEach(p => {
+          if (p._sizeQtys.hasOwnProperty(size)) {
+            p._sizeQtys[size] = qty;
+          }
+        });
       });
       renderTable();
       updateSummary();
